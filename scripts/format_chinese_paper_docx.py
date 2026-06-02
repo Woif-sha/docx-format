@@ -22,6 +22,9 @@ from docx.shared import Cm, Pt
 
 
 BODY_FONT_PT = 12
+FIRST_LEVEL_HEADING_FONT_PT = 14
+CAPTION_FONT_PT = 10.5
+TABLE_FONT_PT = 9
 INDENT_PT = BODY_FONT_PT * 2
 
 HEADING_RE = re.compile(r"^(?:[一二三四五六七八九十]+、|\d+(?:\.\d+)*\s+|\d+[.、])")
@@ -40,6 +43,11 @@ def is_caption(text: str) -> bool:
 def is_heading(text: str) -> bool:
     text = text.strip()
     return bool(text and HEADING_RE.match(text))
+
+
+def is_first_level_heading(text: str) -> bool:
+    text = text.strip()
+    return bool(re.match(r"^[一二三四五六七八九十]+、", text))
 
 
 def is_reference(text: str) -> bool:
@@ -68,14 +76,13 @@ def iter_paragraphs(document: Document):
                 yield from cell.paragraphs
 
 
-def set_run_fonts(paragraph) -> None:
+def set_run_fonts(paragraph, size_pt: float = BODY_FONT_PT) -> None:
     for run in paragraph.runs:
         if run.text and all(char in "“”‘’" for char in run.text):
             set_quote_run_font(run)
         else:
             set_standard_run_font(run)
-        if run.font.size is None:
-            run.font.size = Pt(BODY_FONT_PT)
+        run.font.size = Pt(size_pt)
 
 
 def set_standard_run_font(run) -> None:
@@ -119,7 +126,7 @@ def clear_paragraph_content(paragraph) -> None:
             p_element.remove(child)
 
 
-def rebuild_runs_with_quote_fonts(paragraph, text: str) -> None:
+def rebuild_runs_with_quote_fonts(paragraph, text: str, size_pt: float = BODY_FONT_PT) -> None:
     clear_paragraph_content(paragraph)
     buffer = []
     for char in text:
@@ -127,24 +134,24 @@ def rebuild_runs_with_quote_fonts(paragraph, text: str) -> None:
             if buffer:
                 run = paragraph.add_run("".join(buffer))
                 set_standard_run_font(run)
-                run.font.size = Pt(BODY_FONT_PT)
+                run.font.size = Pt(size_pt)
                 buffer = []
             run = paragraph.add_run(char)
             set_quote_run_font(run)
-            run.font.size = Pt(BODY_FONT_PT)
+            run.font.size = Pt(size_pt)
         else:
             buffer.append(char)
     if buffer:
         run = paragraph.add_run("".join(buffer))
         set_standard_run_font(run)
-        run.font.size = Pt(BODY_FONT_PT)
+        run.font.size = Pt(size_pt)
 
 
-def process_quotes(paragraph) -> int:
+def process_quotes(paragraph, size_pt: float = BODY_FONT_PT) -> int:
     text = paragraph.text
     converted = curly_quotes(text)
     if converted != text or any(char in converted for char in "“”‘’"):
-        rebuild_runs_with_quote_fonts(paragraph, converted)
+        rebuild_runs_with_quote_fonts(paragraph, converted, size_pt=size_pt)
     return text.count('"')
 
 
@@ -197,13 +204,13 @@ def apply_three_line_table(table) -> int:
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             cell_border(cell, top=nil, left=nil, bottom=nil, right=nil, insideH=nil, insideV=nil)
             for paragraph in cell.paragraphs:
-                quote_replacements += process_quotes(paragraph)
+                quote_replacements += process_quotes(paragraph, size_pt=TABLE_FONT_PT)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 paragraph.paragraph_format.first_line_indent = Pt(0)
                 paragraph.paragraph_format.space_before = Pt(0)
                 paragraph.paragraph_format.space_after = Pt(0)
                 paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-                set_run_fonts(paragraph)
+                set_run_fonts(paragraph, size_pt=TABLE_FONT_PT)
 
     for cell in table.rows[0].cells:
         clear_shading(cell)
@@ -366,34 +373,49 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
     caption_count = 0
 
     for paragraph in document.paragraphs:
-        quote_replacements += process_quotes(paragraph)
+        stripped_before = paragraph.text.strip()
+        if is_caption(stripped_before):
+            run_size = CAPTION_FONT_PT
+        elif is_first_level_heading(stripped_before):
+            run_size = FIRST_LEVEL_HEADING_FONT_PT
+        else:
+            run_size = BODY_FONT_PT
+
+        quote_replacements += process_quotes(paragraph, size_pt=run_size)
 
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
         paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-        set_run_fonts(paragraph)
 
         stripped = paragraph.text.strip()
         if has_drawing(paragraph):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
+            set_run_fonts(paragraph, size_pt=BODY_FONT_PT)
             image_count += 1
         elif is_caption(stripped):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
+            set_run_fonts(paragraph, size_pt=CAPTION_FONT_PT)
             caption_count += 1
         elif is_reference(stripped):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             paragraph.paragraph_format.first_line_indent = Pt(0)
+            set_run_fonts(paragraph, size_pt=BODY_FONT_PT)
             reference_count += 1
         elif is_heading(stripped):
             paragraph.alignment = paragraph.alignment or WD_ALIGN_PARAGRAPH.LEFT
             paragraph.paragraph_format.first_line_indent = Pt(0)
+            heading_size = FIRST_LEVEL_HEADING_FONT_PT if is_first_level_heading(stripped) else BODY_FONT_PT
+            set_run_fonts(paragraph, size_pt=heading_size)
             heading_count += 1
         elif is_body(stripped, paragraph):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             paragraph.paragraph_format.first_line_indent = Pt(INDENT_PT)
+            set_run_fonts(paragraph, size_pt=BODY_FONT_PT)
             body_count += 1
+        else:
+            set_run_fonts(paragraph, size_pt=BODY_FONT_PT)
 
     for table in document.tables:
         quote_replacements += apply_three_line_table(table)

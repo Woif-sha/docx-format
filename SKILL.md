@@ -1,9 +1,9 @@
 ---
-name: chinese-paper-docx-format
+name: docx-format
 description: Use this skill by default whenever the user asks to create, read, edit, revise, polish, format, or validate a Word/DOCX deliverable, especially Chinese academic papers, course papers, case papers, theory-framework papers, literature-review reports, thesis-like assignments, and Chinese research reports. This skill is the user's default DOCX route unless the current task provides a template or conflicting formatting requirements.
 ---
 
-# Chinese Paper DOCX Format
+# DOCX Format
 
 ## Core Rule
 
@@ -25,10 +25,10 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 - Fonts: Chinese text uses `宋体`; western text and numbers use `Times New Roman`.
 - Chinese punctuation: keep Chinese full-width punctuation in the East Asian font. Do not force Chinese punctuation into Times New Roman.
 - Quotation marks: implement the Word workflow shown in the user's reference, conceptually: find Chinese curly quote marks, select all matches, and convert/format them as full-width Chinese punctuation. In automation, replace straight ASCII double quotes `"` with Chinese curly quotes `“”`; also process existing `“”`; put each Chinese quote mark in its own run and force `ascii`, `hAnsi`, and `eastAsia` fonts to `宋体`, not inherited `Times New Roman`. Reference: https://zhuanlan.zhihu.com/p/1973714955296596248.
-- Body paragraphs: first-line indent `2` Chinese characters; justified alignment; `1.5` line spacing; space before and after `0`.
-- Heading paragraphs: `1.5` line spacing; space before and after `0`; indentation follows the template or user request. Usually headings have no first-line indent.
-- Figures, tables, and captions: images, tables, figure captions, and table captions are centered.
-- Table text: horizontally centered and vertically centered.
+- Body paragraphs: first-line indent `2` Chinese characters; justified alignment; `1.5` line spacing; space before and after `0`; default body font size is `小四 / 12 pt`.
+- Heading paragraphs: `1.5` line spacing; space before and after `0`; indentation follows the template or user request. Usually headings have no first-line indent. First-level headings are one Chinese size larger than body text, defaulting to `四号 / 14 pt` when body text is `小四 / 12 pt`.
+- Figures, tables, and captions: images, tables, figure captions, and table captions are centered. Figure and table captions use `五号 / 10.5 pt`.
+- Table text: horizontally centered and vertically centered; table-cell text uses `小五 / 9 pt`.
 - Three-line tables: center the table; keep only the top border, header-bottom border, and bottom border. Top and bottom borders are `1.5 pt`; the header-bottom border is `0.75 pt`. Do not shade the first row. Use `宋体` for Chinese and `Times New Roman` for western text and numbers.
 - References: use ordinary `[1]`, `[2]` numbering when the user asks for plain numbered references. Reference paragraphs are justified, with space before and after `0`. If a template already has automatic numbering or cross-references, preserve that mechanism and avoid duplicate numbering.
 
@@ -41,7 +41,7 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 
 ## Template
 
-Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, centered captions, three-line table border weights, Chinese quote marks, and reference numbering.
+Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, centered captions at `五号 / 10.5 pt`, table-cell text at `小五 / 9 pt`, three-line table border weights, Chinese quote marks, and reference numbering.
 
 ## Validation Checklist
 
@@ -53,7 +53,9 @@ Before final delivery, read the output back and report the important checks:
 - Body and heading line spacing are `1.5`.
 - Paragraph space before/after is `0`.
 - Body paragraphs are justified and first-line indented by `2` Chinese characters.
+- First-level headings are `14 pt` when the body text is `12 pt`.
 - Tables are centered; table-cell paragraphs are centered; cells are vertically centered.
+- Table-cell text is `9 pt`; figure/table captions are `10.5 pt`.
 - Three-line tables have no first-row shading and only top, header-bottom, and bottom rules.
 - Image paragraphs and figure/table captions are centered.
 - Straight ASCII double quote count is `0` in Chinese prose unless intentionally preserved.
