@@ -22,7 +22,7 @@ If editing a user-named final document in place is expected, pass the same path 
 - Page setup: A4; top, bottom, left, and right margins all `2.5 cm`.
 - Fonts: Chinese text uses `宋体`; western text and numbers use `Times New Roman`.
 - Chinese punctuation: keep Chinese full-width punctuation in the East Asian font. Do not force Chinese punctuation into Times New Roman.
-- Quotation marks: replace straight ASCII double quotes `"` in Chinese prose with Chinese curly quotes `“”`.
+- Quotation marks: replace straight ASCII double quotes `"` in Chinese prose with Chinese curly quotes `“”`. Do not stop at character replacement; ensure the generated Chinese quote marks use `宋体`, not inherited `Times New Roman`. The user's reference for this issue is https://zhuanlan.zhihu.com/p/1973714955296596248.
 - Body paragraphs: first-line indent `2` Chinese characters; justified alignment; `1.5` line spacing; space before and after `0`.
 - Heading paragraphs: `1.5` line spacing; space before and after `0`; indentation follows the template or user request. Usually headings have no first-line indent.
 - Figures, tables, and captions: images, tables, figure captions, and table captions are centered.
@@ -36,6 +36,10 @@ If editing a user-named final document in place is expected, pass the same path 
 - A current-turn instruction wins over this skill.
 - If another DOCX skill says different Chinese academic defaults, prefer this skill for Chinese papers and similar academic DOCX deliverables.
 - Do not rewrite scholarly content merely to format it. Keep content changes separate from formatting unless the user asks for polishing.
+
+## Template
+
+Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, headings, centered captions, three-line table, Chinese quote marks, and reference numbering.
 
 ## Validation Checklist
 

@@ -67,21 +67,73 @@ def iter_paragraphs(document: Document):
 
 def set_run_fonts(paragraph) -> None:
     for run in paragraph.runs:
-        run.font.name = "Times New Roman"
-        run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), "宋体")
+        if run.text and all(char in "“”‘’" for char in run.text):
+            set_quote_run_font(run)
+        else:
+            set_standard_run_font(run)
         if run.font.size is None:
             run.font.size = Pt(BODY_FONT_PT)
 
 
-def replace_text_preserving_first_run(paragraph, text: str) -> None:
-    if not paragraph.runs:
-        paragraph.add_run(text)
-        set_run_fonts(paragraph)
-        return
-    paragraph.runs[0].text = text
-    for run in paragraph.runs[1:]:
-        run.text = ""
-    set_run_fonts(paragraph)
+def set_standard_run_font(run) -> None:
+    r_fonts = get_or_add_r_fonts(run)
+    run.font.name = "Times New Roman"
+    r_fonts.set(qn("w:ascii"), "Times New Roman")
+    r_fonts.set(qn("w:hAnsi"), "Times New Roman")
+    r_fonts.set(qn("w:eastAsia"), "宋体")
+
+
+def set_quote_run_font(run) -> None:
+    r_fonts = get_or_add_r_fonts(run)
+    run.font.name = "宋体"
+    r_fonts.set(qn("w:ascii"), "宋体")
+    r_fonts.set(qn("w:hAnsi"), "宋体")
+    r_fonts.set(qn("w:eastAsia"), "宋体")
+
+
+def get_or_add_r_fonts(run):
+    r_pr = run._element.get_or_add_rPr()
+    r_fonts = r_pr.rFonts
+    if r_fonts is None:
+        r_fonts = OxmlElement("w:rFonts")
+        r_pr.insert(0, r_fonts)
+    return r_fonts
+
+
+def clear_paragraph_content(paragraph) -> None:
+    p_element = paragraph._p
+    for child in list(p_element):
+        if child.tag != qn("w:pPr"):
+            p_element.remove(child)
+
+
+def rebuild_runs_with_quote_fonts(paragraph, text: str) -> None:
+    clear_paragraph_content(paragraph)
+    buffer = []
+    for char in text:
+        if char in "“”‘’":
+            if buffer:
+                run = paragraph.add_run("".join(buffer))
+                set_standard_run_font(run)
+                run.font.size = Pt(BODY_FONT_PT)
+                buffer = []
+            run = paragraph.add_run(char)
+            set_quote_run_font(run)
+            run.font.size = Pt(BODY_FONT_PT)
+        else:
+            buffer.append(char)
+    if buffer:
+        run = paragraph.add_run("".join(buffer))
+        set_standard_run_font(run)
+        run.font.size = Pt(BODY_FONT_PT)
+
+
+def process_quotes(paragraph) -> int:
+    text = paragraph.text
+    converted = curly_quotes(text)
+    if converted != text or any(char in converted for char in "“”‘’"):
+        rebuild_runs_with_quote_fonts(paragraph, converted)
+    return text.count('"')
 
 
 def curly_quotes(text: str) -> str:
@@ -132,6 +184,7 @@ def apply_three_line_table(table) -> None:
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             cell_border(cell, top=nil, left=nil, bottom=nil, right=nil, insideH=nil, insideV=nil)
             for paragraph in cell.paragraphs:
+                process_quotes(paragraph)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 paragraph.paragraph_format.first_line_indent = Pt(0)
                 paragraph.paragraph_format.space_before = Pt(0)
@@ -165,11 +218,7 @@ def apply_document_format(path: Path, output: Path) -> dict:
     caption_count = 0
 
     for paragraph in document.paragraphs:
-        text = paragraph.text
-        converted = curly_quotes(text)
-        if converted != text:
-            quote_replacements += text.count('"')
-            replace_text_preserving_first_run(paragraph, converted)
+        quote_replacements += process_quotes(paragraph)
 
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
