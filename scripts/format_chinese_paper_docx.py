@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import re
+import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -80,15 +83,24 @@ def set_standard_run_font(run) -> None:
     run.font.name = "Times New Roman"
     r_fonts.set(qn("w:ascii"), "Times New Roman")
     r_fonts.set(qn("w:hAnsi"), "Times New Roman")
+    r_fonts.set(qn("w:cs"), "Times New Roman")
     r_fonts.set(qn("w:eastAsia"), "宋体")
 
 
 def set_quote_run_font(run) -> None:
+    r_pr = run._element.get_or_add_rPr()
     r_fonts = get_or_add_r_fonts(run)
     run.font.name = "宋体"
     r_fonts.set(qn("w:ascii"), "宋体")
     r_fonts.set(qn("w:hAnsi"), "宋体")
+    r_fonts.set(qn("w:cs"), "宋体")
     r_fonts.set(qn("w:eastAsia"), "宋体")
+    r_fonts.set(qn("w:hint"), "eastAsia")
+    lang = r_pr.find(qn("w:lang"))
+    if lang is None:
+        lang = OxmlElement("w:lang")
+        r_pr.append(lang)
+    lang.set(qn("w:eastAsia"), "zh-CN")
 
 
 def get_or_add_r_fonts(run):
@@ -140,7 +152,7 @@ def curly_quotes(text: str) -> str:
     out = []
     opening = True
     for char in text:
-        if char == '"':
+        if char in {'"', "＂"}:
             out.append("“" if opening else "”")
             opening = not opening
         else:
@@ -169,14 +181,15 @@ def cell_border(cell, **borders) -> None:
             element.set(qn(f"w:{key}"), str(value))
 
 
-def apply_three_line_table(table) -> None:
+def apply_three_line_table(table) -> int:
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     line = {"val": "single", "sz": "12", "space": "0", "color": "000000"}
-    mid = {"val": "single", "sz": "8", "space": "0", "color": "000000"}
+    mid = {"val": "single", "sz": "6", "space": "0", "color": "000000"}
     nil = {"val": "nil"}
+    quote_replacements = 0
 
     if not table.rows:
-        return
+        return quote_replacements
 
     for row in table.rows:
         for cell in row.cells:
@@ -184,7 +197,7 @@ def apply_three_line_table(table) -> None:
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
             cell_border(cell, top=nil, left=nil, bottom=nil, right=nil, insideH=nil, insideV=nil)
             for paragraph in cell.paragraphs:
-                process_quotes(paragraph)
+                quote_replacements += process_quotes(paragraph)
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 paragraph.paragraph_format.first_line_indent = Pt(0)
                 paragraph.paragraph_format.space_before = Pt(0)
@@ -197,9 +210,144 @@ def apply_three_line_table(table) -> None:
         cell_border(cell, top=line, bottom=mid, left=nil, right=nil)
     for cell in table.rows[-1].cells:
         cell_border(cell, bottom=line, left=nil, right=nil)
+    return quote_replacements
 
 
-def apply_document_format(path: Path, output: Path) -> dict:
+def apply_word_com_fullwidth_quotes(path: Path) -> dict:
+    """Use Word COM to mimic Find [“”] -> select all -> Aa -> full-width."""
+    result = {"attempted": False, "ok": False, "matches": 0, "error": None}
+    if platform.system() != "Windows":
+        result["error"] = "not_windows"
+        return result
+
+    try:
+        import win32com.client  # type: ignore
+    except Exception as exc:  # pragma: no cover - depends on local Windows setup
+        fallback = apply_word_com_fullwidth_quotes_powershell(path)
+        fallback["pywin32_error"] = str(exc)
+        return fallback
+
+    result["attempted"] = True
+    word = None
+    doc = None
+    try:
+        word = win32com.client.gencache.EnsureDispatch("Word.Application")
+        constants = win32com.client.constants
+        wd_find_stop = getattr(constants, "wdFindStop", 0)
+        wd_width_full_width = getattr(constants, "wdWidthFullWidth", 7)
+        doc = word.Documents.Open(str(path.resolve()), ReadOnly=False, AddToRecentFiles=False)
+        word.Visible = False
+        rng = doc.Content
+        find = rng.Find
+        find.ClearFormatting()
+        find.Text = "[“”]"
+        find.Forward = True
+        find.Wrap = wd_find_stop
+        find.MatchWildcards = True
+
+        while find.Execute():
+            found = rng.Duplicate
+            found.CharacterWidth = wd_width_full_width
+            found.Font.Name = "宋体"
+            found.Font.NameAscii = "宋体"
+            found.Font.NameFarEast = "宋体"
+            found.Font.NameOther = "宋体"
+            result["matches"] += 1
+            rng.Start = found.End
+            rng.End = doc.Content.End
+
+        doc.Save()
+        result["ok"] = True
+    except Exception as exc:  # pragma: no cover - depends on local Word setup
+        result["error"] = str(exc)
+    finally:
+        if doc is not None:
+            try:
+                doc.Close(SaveChanges=True)
+            except Exception:
+                pass
+        if word is not None:
+            try:
+                word.Quit()
+            except Exception:
+                pass
+    return result
+
+
+def apply_word_com_fullwidth_quotes_powershell(path: Path) -> dict:
+    """Fallback Word COM automation through PowerShell when pywin32 is unavailable."""
+    result = {"attempted": True, "ok": False, "matches": 0, "error": None, "route": "powershell"}
+    ps_script = r'''
+param([string]$DocPath)
+$ErrorActionPreference = "Stop"
+$word = $null
+$doc = $null
+try {
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $doc = $word.Documents.Open($DocPath, $false, $false)
+  $range = $doc.Content
+  $find = $range.Find
+  $find.ClearFormatting()
+  $find.Text = '[“”]'
+  $find.Forward = $true
+  $find.Wrap = 0
+  $find.MatchWildcards = $true
+  $count = 0
+  while ($find.Execute()) {
+    $found = $range.Duplicate
+    try { $found.CharacterWidth = 7 } catch {}
+    $found.Font.Name = '宋体'
+    $found.Font.NameAscii = '宋体'
+    $found.Font.NameFarEast = '宋体'
+    $found.Font.NameOther = '宋体'
+    $count += 1
+    $range.Start = $found.End
+    $range.End = $doc.Content.End
+  }
+  $doc.Save()
+  Write-Output "COUNT=$count"
+}
+finally {
+  if ($doc -ne $null) { try { $doc.Close($true) } catch {} }
+  if ($word -ne $null) { try { $word.Quit() } catch {} }
+}
+'''
+    script_path = Path(tempfile.gettempdir()) / "chinese_paper_docx_quote_width.ps1"
+    script_path.write_text(ps_script, encoding="utf-8-sig")
+    try:
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                "-DocPath",
+                str(path.resolve()),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+        if completed.returncode != 0:
+            result["error"] = (completed.stderr or completed.stdout or "").strip()
+            return result
+        match = re.search(r"COUNT=(\d+)", completed.stdout)
+        result["matches"] = int(match.group(1)) if match else 0
+        result["ok"] = True
+    except Exception as exc:  # pragma: no cover - depends on local Word setup
+        result["error"] = str(exc)
+    finally:
+        try:
+            script_path.unlink()
+        except OSError:
+            pass
+    return result
+
+
+def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -> dict:
     document = Document(path)
 
     for section in document.sections:
@@ -248,10 +396,16 @@ def apply_document_format(path: Path, output: Path) -> dict:
             body_count += 1
 
     for table in document.tables:
-        apply_three_line_table(table)
+        quote_replacements += apply_three_line_table(table)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     document.save(output)
+    word_com_result = apply_word_com_fullwidth_quotes(output) if use_word_com else {
+        "attempted": False,
+        "ok": False,
+        "matches": 0,
+        "error": "disabled",
+    }
 
     return {
         "output": str(output),
@@ -263,6 +417,7 @@ def apply_document_format(path: Path, output: Path) -> dict:
         "captions": caption_count,
         "image_paragraphs": image_count,
         "quote_replacements": quote_replacements,
+        "word_com_fullwidth_quotes": word_com_result,
     }
 
 
@@ -292,10 +447,15 @@ def main() -> int:
     parser.add_argument("input", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--skip-word-com-fullwidth-quotes",
+        action="store_true",
+        help="Do not attempt the Windows Word COM full-width quote pass.",
+    )
     args = parser.parse_args()
 
     output = args.output or args.input
-    summary = apply_document_format(args.input, output)
+    summary = apply_document_format(args.input, output, use_word_com=not args.skip_word_com_fullwidth_quotes)
     summary["validation"] = validate_docx(output)
 
     if args.json:
