@@ -32,7 +32,8 @@ BLACK = RGBColor(0, 0, 0)
 
 HEADING_RE = re.compile(r"^(?:[一二三四五六七八九十]+、|\d+(?:\.\d+)*\s+|\d+[.、])")
 REF_RE = re.compile(r"^\[\d+\]")
-CAPTION_RE = re.compile(r"^([图表])(?:\s*(\d+(?:\.\d+)?)\s*[:：.、]?\s*(.*)|\s+(.+))$")
+CAPTION_RE = re.compile(r"^([图表])(?:\s*(\d+(?:[.-]\d+)?)\s*[:：.、-]?\s*(.*)|\s+(.+))$")
+MAX_CAPTION_TITLE_CHARS = 32
 CHINESE_NUMERAL = {
     "一": 1,
     "二": 2,
@@ -223,14 +224,90 @@ def caption_kind(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def normalize_caption_text(kind: str, chapter: int, index: int, text: str) -> str:
+def extract_caption_title(text: str) -> str:
     match = CAPTION_RE.match(text.strip())
-    title = ""
     if match:
-        title = (match.group(3) or match.group(4) or "").strip()
+        return (match.group(3) or match.group(4) or "").strip()
+    return text.strip()
+
+
+def normalize_caption_text(kind: str, chapter: int, index: int, text: str, fallback_title: str | None = None) -> str:
+    title = sanitize_caption_title(extract_caption_title(text) or fallback_title or default_caption_title(kind, chapter))
+    return f"{kind}{chapter}-{index}  {title}"
+
+
+def default_caption_title(kind: str, chapter: int) -> str:
+    return f"第{chapter}章相关{'图示' if kind == '图' else '数据'}"
+
+
+def sanitize_caption_title(title: str) -> str:
+    title = re.sub(r"\s+", "", title.strip())
+    title = re.sub(r"^[：:，,。.、；;\-]+", "", title)
+    title = re.sub(r"[。；;，,、：:]+$", "", title)
     if not title:
-        title = "题名待补充"
-    return f"{kind}{chapter}.{index}  {title}"
+        return title
+    return title[:MAX_CAPTION_TITLE_CHARS]
+
+
+def clean_context_title(text: str) -> str:
+    text = re.sub(r"^[一二三四五六七八九十]+、", "", text.strip())
+    text = re.sub(r"^\d+(?:\.\d+)*[、.\s]*", "", text)
+    text = re.sub(r"^\[\d+\]\s*", "", text)
+    text = re.sub(r"\s+", "", text)
+    text = re.split(r"[。；;！？!?]", text, maxsplit=1)[0]
+    return sanitize_caption_title(text)
+
+
+def table_header_title(table: Table) -> str:
+    if not table.rows:
+        return ""
+    headers = []
+    seen = set()
+    for cell in table.rows[0].cells:
+        text = clean_context_title(cell.text)
+        if text and text not in seen:
+            headers.append(text)
+            seen.add(text)
+    if not headers:
+        return ""
+    joined = "、".join(headers)
+    return sanitize_caption_title(f"{joined}统计表")
+
+
+def nearby_context_title(blocks: list, index: int, current_heading: str) -> str:
+    for step in range(1, 4):
+        previous_index = index - step
+        if previous_index >= 0 and isinstance(blocks[previous_index], Paragraph):
+            text = blocks[previous_index].text.strip()
+            if text and not has_drawing(blocks[previous_index]) and not is_caption(text):
+                candidate = clean_context_title(text)
+                if candidate:
+                    return candidate
+
+    for step in range(1, 3):
+        next_index = index + step
+        if next_index < len(blocks) and isinstance(blocks[next_index], Paragraph):
+            text = blocks[next_index].text.strip()
+            if text and not has_drawing(blocks[next_index]) and not is_caption(text):
+                candidate = clean_context_title(text)
+                if candidate:
+                    return candidate
+
+    return clean_context_title(current_heading)
+
+
+def proposed_caption_title(kind: str, blocks: list, index: int, current_heading: str, chapter: int) -> str:
+    if kind == "表" and isinstance(blocks[index], Table):
+        candidate = table_header_title(blocks[index])
+        if candidate:
+            return candidate
+    candidate = nearby_context_title(blocks, index, current_heading)
+    if candidate:
+        suffix = "图示" if kind == "图" else "情况"
+        if candidate.endswith(("图", "图示", "图例", "表", "情况", "数据", "统计表")):
+            return candidate
+        return sanitize_caption_title(f"{candidate}{suffix}")
+    return default_caption_title(kind, chapter)
 
 
 def insert_paragraph_before(element, text: str) -> Paragraph:
@@ -255,6 +332,7 @@ def insert_paragraph_after(paragraph: Paragraph, text: str) -> Paragraph:
 def ensure_numbered_captions(document: Document) -> dict:
     blocks = list(iter_block_items(document))
     current_chapter = 1
+    current_heading = ""
     fallback_chapter = 1
     counters = {"图": 0, "表": 0}
     processed: set[int] = set()
@@ -266,6 +344,7 @@ def ensure_numbered_captions(document: Document) -> dict:
             text = block.text.strip()
             if is_first_level_heading(text):
                 current_chapter = chinese_chapter_number(text, fallback_chapter)
+                current_heading = text
                 fallback_chapter = current_chapter + 1
                 counters = {"图": 0, "表": 0}
                 continue
@@ -284,9 +363,10 @@ def ensure_numbered_captions(document: Document) -> dict:
                         normalized += 1
                 else:
                     counters["图"] += 1
+                    title = proposed_caption_title("图", blocks, index, current_heading, current_chapter)
                     insert_paragraph_after(
                         block,
-                        normalize_caption_text("图", current_chapter, counters["图"], "图  题名待补充"),
+                        normalize_caption_text("图", current_chapter, counters["图"], title, fallback_title=title),
                     )
                     inserted += 1
                 continue
@@ -316,9 +396,10 @@ def ensure_numbered_captions(document: Document) -> dict:
                     normalized += 1
             else:
                 counters["表"] += 1
+                title = proposed_caption_title("表", blocks, index, current_heading, current_chapter)
                 insert_paragraph_before(
                     block,
-                    normalize_caption_text("表", current_chapter, counters["表"], "表  题名待补充"),
+                    normalize_caption_text("表", current_chapter, counters["表"], title, fallback_title=title),
                 )
                 inserted += 1
 
