@@ -14,11 +14,13 @@ import zipfile
 from pathlib import Path
 
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 
 
 BODY_FONT_PT = 12
@@ -26,9 +28,23 @@ FIRST_LEVEL_HEADING_FONT_PT = 14
 CAPTION_FONT_PT = 10.5
 TABLE_FONT_PT = 9
 INDENT_PT = BODY_FONT_PT * 2
+BLACK = RGBColor(0, 0, 0)
 
 HEADING_RE = re.compile(r"^(?:[一二三四五六七八九十]+、|\d+(?:\.\d+)*\s+|\d+[.、])")
 REF_RE = re.compile(r"^\[\d+\]")
+CAPTION_RE = re.compile(r"^([图表])(?:\s*(\d+(?:\.\d+)?)\s*[:：.、]?\s*(.*)|\s+(.+))$")
+CHINESE_NUMERAL = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+}
 
 
 def has_drawing(paragraph) -> bool:
@@ -37,7 +53,7 @@ def has_drawing(paragraph) -> bool:
 
 def is_caption(text: str) -> bool:
     text = text.strip()
-    return bool(re.match(r"^[图表]\s*\d+", text)) or text.startswith(("图 ", "表 "))
+    return bool(CAPTION_RE.match(text))
 
 
 def is_heading(text: str) -> bool:
@@ -76,6 +92,15 @@ def iter_paragraphs(document: Document):
                 yield from cell.paragraphs
 
 
+def iter_block_items(document: Document):
+    parent = document.element.body
+    for child in parent.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, document)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, document)
+
+
 def set_run_fonts(paragraph, size_pt: float = BODY_FONT_PT) -> None:
     for run in paragraph.runs:
         if run.text and all(char in "“”‘’" for char in run.text):
@@ -83,6 +108,7 @@ def set_run_fonts(paragraph, size_pt: float = BODY_FONT_PT) -> None:
         else:
             set_standard_run_font(run)
         run.font.size = Pt(size_pt)
+        run.font.color.rgb = BLACK
 
 
 def set_standard_run_font(run) -> None:
@@ -126,6 +152,14 @@ def clear_paragraph_content(paragraph) -> None:
             p_element.remove(child)
 
 
+def set_paragraph_plain_text(paragraph, text: str, size_pt: float = BODY_FONT_PT) -> None:
+    clear_paragraph_content(paragraph)
+    run = paragraph.add_run(text)
+    set_standard_run_font(run)
+    run.font.size = Pt(size_pt)
+    run.font.color.rgb = BLACK
+
+
 def rebuild_runs_with_quote_fonts(paragraph, text: str, size_pt: float = BODY_FONT_PT) -> None:
     clear_paragraph_content(paragraph)
     buffer = []
@@ -165,6 +199,130 @@ def curly_quotes(text: str) -> str:
         else:
             out.append(char)
     return "".join(out)
+
+
+def chinese_chapter_number(text: str, fallback: int) -> int:
+    match = re.match(r"^([一二三四五六七八九十]+)、", text.strip())
+    if not match:
+        return fallback
+    raw = match.group(1)
+    if raw in CHINESE_NUMERAL:
+        return CHINESE_NUMERAL[raw]
+    if raw.startswith("十") and len(raw) == 2:
+        return 10 + CHINESE_NUMERAL.get(raw[1], 0)
+    if raw.endswith("十") and len(raw) == 2:
+        return CHINESE_NUMERAL.get(raw[0], 1) * 10
+    if "十" in raw:
+        left, right = raw.split("十", 1)
+        return CHINESE_NUMERAL.get(left, 1) * 10 + CHINESE_NUMERAL.get(right, 0)
+    return fallback
+
+
+def caption_kind(text: str) -> str | None:
+    match = CAPTION_RE.match(text.strip())
+    return match.group(1) if match else None
+
+
+def normalize_caption_text(kind: str, chapter: int, index: int, text: str) -> str:
+    match = CAPTION_RE.match(text.strip())
+    title = ""
+    if match:
+        title = (match.group(3) or match.group(4) or "").strip()
+    if not title:
+        title = "题名待补充"
+    return f"{kind}{chapter}.{index}  {title}"
+
+
+def insert_paragraph_before(element, text: str) -> Paragraph:
+    paragraph_element = OxmlElement("w:p")
+    anchor = getattr(element, "_element", None)
+    if anchor is None:
+        anchor = getattr(element, "_tbl", None)
+    anchor.addprevious(paragraph_element)
+    paragraph = Paragraph(paragraph_element, element._parent)
+    set_paragraph_plain_text(paragraph, text, size_pt=CAPTION_FONT_PT)
+    return paragraph
+
+
+def insert_paragraph_after(paragraph: Paragraph, text: str) -> Paragraph:
+    paragraph_element = OxmlElement("w:p")
+    paragraph._p.addnext(paragraph_element)
+    inserted = Paragraph(paragraph_element, paragraph._parent)
+    set_paragraph_plain_text(inserted, text, size_pt=CAPTION_FONT_PT)
+    return inserted
+
+
+def ensure_numbered_captions(document: Document) -> dict:
+    blocks = list(iter_block_items(document))
+    current_chapter = 1
+    fallback_chapter = 1
+    counters = {"图": 0, "表": 0}
+    processed: set[int] = set()
+    inserted = 0
+    normalized = 0
+
+    for index, block in enumerate(blocks):
+        if isinstance(block, Paragraph):
+            text = block.text.strip()
+            if is_first_level_heading(text):
+                current_chapter = chinese_chapter_number(text, fallback_chapter)
+                fallback_chapter = current_chapter + 1
+                counters = {"图": 0, "表": 0}
+                continue
+
+            if has_drawing(block):
+                next_block = blocks[index + 1] if index + 1 < len(blocks) else None
+                if isinstance(next_block, Paragraph) and caption_kind(next_block.text) == "图":
+                    if id(next_block._p) not in processed:
+                        counters["图"] += 1
+                        set_paragraph_plain_text(
+                            next_block,
+                            normalize_caption_text("图", current_chapter, counters["图"], next_block.text),
+                            size_pt=CAPTION_FONT_PT,
+                        )
+                        processed.add(id(next_block._p))
+                        normalized += 1
+                else:
+                    counters["图"] += 1
+                    insert_paragraph_after(
+                        block,
+                        normalize_caption_text("图", current_chapter, counters["图"], "图  题名待补充"),
+                    )
+                    inserted += 1
+                continue
+
+            kind = caption_kind(text)
+            if kind and id(block._p) not in processed:
+                counters[kind] += 1
+                set_paragraph_plain_text(
+                    block,
+                    normalize_caption_text(kind, current_chapter, counters[kind], text),
+                    size_pt=CAPTION_FONT_PT,
+                )
+                processed.add(id(block._p))
+                normalized += 1
+
+        elif isinstance(block, Table):
+            previous_block = blocks[index - 1] if index > 0 else None
+            if isinstance(previous_block, Paragraph) and caption_kind(previous_block.text) == "表":
+                if id(previous_block._p) not in processed:
+                    counters["表"] += 1
+                    set_paragraph_plain_text(
+                        previous_block,
+                        normalize_caption_text("表", current_chapter, counters["表"], previous_block.text),
+                        size_pt=CAPTION_FONT_PT,
+                    )
+                    processed.add(id(previous_block._p))
+                    normalized += 1
+            else:
+                counters["表"] += 1
+                insert_paragraph_before(
+                    block,
+                    normalize_caption_text("表", current_chapter, counters["表"], "表  题名待补充"),
+                )
+                inserted += 1
+
+    return {"inserted": inserted, "normalized": normalized}
 
 
 def clear_shading(cell) -> None:
@@ -209,7 +367,8 @@ def apply_three_line_table(table) -> int:
                 paragraph.paragraph_format.first_line_indent = Pt(0)
                 paragraph.paragraph_format.space_before = Pt(0)
                 paragraph.paragraph_format.space_after = Pt(0)
-                paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+                paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                paragraph.paragraph_format.line_spacing = 1.0
                 set_run_fonts(paragraph, size_pt=TABLE_FONT_PT)
 
     for cell in table.rows[0].cells:
@@ -371,6 +530,7 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
     reference_count = 0
     image_count = 0
     caption_count = 0
+    caption_result = ensure_numbered_captions(document)
 
     for paragraph in document.paragraphs:
         stripped_before = paragraph.text.strip()
@@ -438,6 +598,8 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
         "references": reference_count,
         "captions": caption_count,
         "image_paragraphs": image_count,
+        "captions_inserted": caption_result["inserted"],
+        "captions_normalized": caption_result["normalized"],
         "quote_replacements": quote_replacements,
         "word_com_fullwidth_quotes": word_com_result,
     }
