@@ -24,9 +24,11 @@ from docx.shared import Cm, Pt, RGBColor
 
 
 BODY_FONT_PT = 12
+TITLE_FONT_PT = 18
 FIRST_LEVEL_HEADING_FONT_PT = 14
 CAPTION_FONT_PT = 10.5
 TABLE_FONT_PT = 9
+FOOTER_FONT_PT = 12
 INDENT_PT = BODY_FONT_PT * 2
 BLACK = RGBColor(0, 0, 0)
 
@@ -164,6 +166,68 @@ def set_paragraph_plain_text(paragraph, text: str, size_pt: float = BODY_FONT_PT
 def set_single_line_spacing(paragraph) -> None:
     paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     paragraph.paragraph_format.line_spacing = 1.0
+
+
+def set_one_point_five_spacing(paragraph) -> None:
+    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+
+
+def add_page_number_field(paragraph) -> None:
+    clear_paragraph_content(paragraph)
+    run = paragraph.add_run()
+    set_standard_run_font(run)
+    run.font.size = Pt(FOOTER_FONT_PT)
+    run.font.color.rgb = BLACK
+
+    field_begin = OxmlElement("w:fldChar")
+    field_begin.set(qn("w:fldCharType"), "begin")
+    instr_text = OxmlElement("w:instrText")
+    instr_text.set(qn("xml:space"), "preserve")
+    instr_text.text = " PAGE "
+    field_separate = OxmlElement("w:fldChar")
+    field_separate.set(qn("w:fldCharType"), "separate")
+    field_result = OxmlElement("w:t")
+    field_result.text = "1"
+    field_end = OxmlElement("w:fldChar")
+    field_end.set(qn("w:fldCharType"), "end")
+
+    run._r.append(field_begin)
+    run._r.append(instr_text)
+    run._r.append(field_separate)
+    run._r.append(field_result)
+    run._r.append(field_end)
+
+
+def apply_footer_page_number(section) -> None:
+    section.footer_distance = Cm(1.27)
+    section.different_first_page_header_footer = False
+    footer = section.footer
+    try:
+        footer.is_linked_to_previous = False
+    except ValueError:
+        pass
+
+    paragraph = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    set_single_line_spacing(paragraph)
+    add_page_number_field(paragraph)
+
+    for extra in list(footer.paragraphs[1:]):
+        extra._element.getparent().remove(extra._element)
+
+
+def apply_document_title_format(paragraph) -> None:
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(0)
+    set_one_point_five_spacing(paragraph)
+    set_run_fonts(paragraph, size_pt=TITLE_FONT_PT)
+    for run in paragraph.runs:
+        run.bold = True
 
 
 def rebuild_runs_with_quote_fonts(paragraph, text: str, size_pt: float = BODY_FONT_PT) -> None:
@@ -608,6 +672,12 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
         section.bottom_margin = Cm(2.5)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
+        apply_footer_page_number(section)
+
+    title_paragraph_index = next(
+        (index for index, paragraph in enumerate(document.paragraphs) if paragraph.text.strip() and not has_drawing(paragraph)),
+        None,
+    )
 
     quote_replacements = 0
     body_count = 0
@@ -617,9 +687,11 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
     caption_count = 0
     caption_result = ensure_numbered_captions(document)
 
-    for paragraph in document.paragraphs:
+    for paragraph_index, paragraph in enumerate(document.paragraphs):
         stripped_before = paragraph.text.strip()
-        if is_caption(stripped_before):
+        if paragraph_index == title_paragraph_index:
+            run_size = TITLE_FONT_PT
+        elif is_caption(stripped_before):
             run_size = CAPTION_FONT_PT
         elif is_first_level_heading(stripped_before):
             run_size = FIRST_LEVEL_HEADING_FONT_PT
@@ -630,10 +702,12 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
 
         paragraph.paragraph_format.space_before = Pt(0)
         paragraph.paragraph_format.space_after = Pt(0)
-        paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+        set_one_point_five_spacing(paragraph)
 
         stripped = paragraph.text.strip()
-        if has_drawing(paragraph):
+        if paragraph_index == title_paragraph_index:
+            apply_document_title_format(paragraph)
+        elif has_drawing(paragraph):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
             set_run_fonts(paragraph, size_pt=BODY_FONT_PT)

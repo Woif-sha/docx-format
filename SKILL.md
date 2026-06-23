@@ -21,10 +21,12 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 
 ## Default Format
 
-- Page setup: A4; top, bottom, left, and right margins all `2.5 cm`.
+- Page setup: A4; top, bottom, left, and right margins all `2.5 cm`; footer distance from bottom is `1.27 cm`.
 - Fonts: Chinese text uses `宋体`; western text and numbers use `Times New Roman`; all visible text uses black font color. Do not leave colored characters in the final DOCX unless the user explicitly asks for color.
 - Chinese punctuation: keep Chinese full-width punctuation in the East Asian font. Do not force Chinese punctuation into Times New Roman.
 - Quotation marks: implement the Word workflow shown in the user's reference, conceptually: find Chinese curly quote marks, select all matches, and convert/format them as full-width Chinese punctuation. In automation, replace straight ASCII double quotes `"` with Chinese curly quotes `“”`; also process existing `“”`; put each Chinese quote mark in its own run and force `ascii`, `hAnsi`, and `eastAsia` fonts to `宋体`, not inherited `Times New Roman`. Reference: https://zhuanlan.zhihu.com/p/1973714955296596248.
+- Document title: the first non-empty paragraph at the beginning of the Word document is treated as the main title; set it to `宋体`, `小二 / 18 pt`, centered, and bold, with space before and after `0`.
+- Page numbers: every page must show a centered footer page number. The page number uses `小四 / 12 pt`, black font, and the footer distance from the bottom edge is `1.27 cm`.
 - Body paragraphs: first-line indent `2` Chinese characters; justified alignment; `1.5` line spacing; space before and after `0`; default body font size is `小四 / 12 pt`.
 - Heading paragraphs: `1.5` line spacing; space before and after `0`; indentation follows the template or user request. Usually headings have no first-line indent. First-level headings are one Chinese size larger than body text, defaulting to `四号 / 14 pt` when body text is `小四 / 12 pt`.
 - Figures, tables, and captions: every inserted or generated image/table must have a corresponding figure/table caption. Captions are centered, use `五号 / 10.5 pt`, and use single line spacing. Do not leave missing captions, blank captions, or placeholder captions such as `题名待补充`.
@@ -44,7 +46,7 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 
 ## Template
 
-Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, chapter-based captions such as `表1-1` and `图1-1` at `五号 / 10.5 pt` with single line spacing, table-cell text at `小五 / 9 pt` with single line spacing, three-line table border weights, Chinese quote marks, MathML/native equation requirements, and reference numbering.
+Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, centered footer page numbers, main-title style, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, chapter-based captions such as `表1-1` and `图1-1` at `五号 / 10.5 pt` with single line spacing, table-cell text at `小五 / 9 pt` with single line spacing, three-line table border weights, Chinese quote marks, MathML/native equation requirements, and reference numbering.
 
 ## Validation Checklist
 
@@ -52,6 +54,8 @@ Before final delivery, read the output back and report the important checks:
 
 - DOCX opens as a valid ZIP/package.
 - Title, paragraph count, and table count can be read.
+- The first non-empty paragraph is centered, bold, `宋体`, and `小二 / 18 pt` when it is the document title.
+- Every section has centered footer page numbers in `小四 / 12 pt`, with footer distance from bottom set to `1.27 cm`.
 - Page size and all margins match the required defaults where applicable.
 - Body and heading line spacing are `1.5`; figure/table caption line spacing is single.
 - Paragraph space before/after is `0`.
