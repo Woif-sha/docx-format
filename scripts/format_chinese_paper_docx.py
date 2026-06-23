@@ -161,6 +161,11 @@ def set_paragraph_plain_text(paragraph, text: str, size_pt: float = BODY_FONT_PT
     run.font.color.rgb = BLACK
 
 
+def set_single_line_spacing(paragraph) -> None:
+    paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    paragraph.paragraph_format.line_spacing = 1.0
+
+
 def rebuild_runs_with_quote_fonts(paragraph, text: str, size_pt: float = BODY_FONT_PT) -> None:
     clear_paragraph_content(paragraph)
     buffer = []
@@ -448,8 +453,7 @@ def apply_three_line_table(table) -> int:
                 paragraph.paragraph_format.first_line_indent = Pt(0)
                 paragraph.paragraph_format.space_before = Pt(0)
                 paragraph.paragraph_format.space_after = Pt(0)
-                paragraph.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
-                paragraph.paragraph_format.line_spacing = 1.0
+                set_single_line_spacing(paragraph)
                 set_run_fonts(paragraph, size_pt=TABLE_FONT_PT)
 
     for cell in table.rows[0].cells:
@@ -637,6 +641,7 @@ def apply_document_format(path: Path, output: Path, use_word_com: bool = True) -
         elif is_caption(stripped):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
+            set_single_line_spacing(paragraph)
             set_run_fonts(paragraph, size_pt=CAPTION_FONT_PT)
             caption_count += 1
         elif is_reference(stripped):

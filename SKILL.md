@@ -27,7 +27,7 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 - Quotation marks: implement the Word workflow shown in the user's reference, conceptually: find Chinese curly quote marks, select all matches, and convert/format them as full-width Chinese punctuation. In automation, replace straight ASCII double quotes `"` with Chinese curly quotes `“”`; also process existing `“”`; put each Chinese quote mark in its own run and force `ascii`, `hAnsi`, and `eastAsia` fonts to `宋体`, not inherited `Times New Roman`. Reference: https://zhuanlan.zhihu.com/p/1973714955296596248.
 - Body paragraphs: first-line indent `2` Chinese characters; justified alignment; `1.5` line spacing; space before and after `0`; default body font size is `小四 / 12 pt`.
 - Heading paragraphs: `1.5` line spacing; space before and after `0`; indentation follows the template or user request. Usually headings have no first-line indent. First-level headings are one Chinese size larger than body text, defaulting to `四号 / 14 pt` when body text is `小四 / 12 pt`.
-- Figures, tables, and captions: every inserted or generated image/table must have a corresponding figure/table caption. Captions are centered and use `五号 / 10.5 pt`. Do not leave missing captions, blank captions, or placeholder captions such as `题名待补充`.
+- Figures, tables, and captions: every inserted or generated image/table must have a corresponding figure/table caption. Captions are centered, use `五号 / 10.5 pt`, and use single line spacing. Do not leave missing captions, blank captions, or placeholder captions such as `题名待补充`.
 - Missing captions: when a table or image has no caption, draft a usable caption title from the table header, nearby paragraph, or current first-level heading. If no local context exists, use a neutral deliverable title such as `第1章相关数据` or `第1章相关图示`, not a placeholder.
 - Caption numbering: figure/table caption numbers follow the current first-level chapter heading. Under `一、...`, captions are numbered `图1-1`, `表1-1`, then `图1-2`, `表1-2`, and so on. Under `二、...`, numbering restarts as `图2-1`, `表2-1`. Do not use plain `图1`/`表1` or dot-form `图1.1`/`表1.1` for chaptered papers.
 - Table text: horizontally centered and vertically centered; table-cell text uses `小五 / 9 pt`; table-cell paragraphs use single line spacing.
@@ -44,7 +44,7 @@ On Windows, the script also attempts a Word COM pass by default to mimic the use
 
 ## Template
 
-Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, chapter-based captions such as `表1-1` and `图1-1` at `五号 / 10.5 pt`, table-cell text at `小五 / 9 pt` with single line spacing, three-line table border weights, Chinese quote marks, MathML/native equation requirements, and reference numbering.
+Use `assets/template.docx` as the bundled reference template for this skill when the user asks for a blank Chinese paper DOCX template. The template demonstrates the default page setup, body paragraph style, heading levels such as `一、`, `1.1`, and `1.1.1`, chapter-based captions such as `表1-1` and `图1-1` at `五号 / 10.5 pt` with single line spacing, table-cell text at `小五 / 9 pt` with single line spacing, three-line table border weights, Chinese quote marks, MathML/native equation requirements, and reference numbering.
 
 ## Validation Checklist
 
@@ -53,13 +53,13 @@ Before final delivery, read the output back and report the important checks:
 - DOCX opens as a valid ZIP/package.
 - Title, paragraph count, and table count can be read.
 - Page size and all margins match the required defaults where applicable.
-- Body and heading line spacing are `1.5`.
+- Body and heading line spacing are `1.5`; figure/table caption line spacing is single.
 - Paragraph space before/after is `0`.
 - Body paragraphs are justified and first-line indented by `2` Chinese characters.
 - First-level headings are `14 pt` when the body text is `12 pt`.
 - All visible text runs use black font color unless the user explicitly requested another color.
 - Tables are centered; table-cell paragraphs are centered; cells are vertically centered.
-- Table-cell text is `9 pt`; table-cell paragraphs use single line spacing; figure/table captions are `10.5 pt`.
+- Table-cell text is `9 pt`; table-cell paragraphs use single line spacing; figure/table captions are `10.5 pt` and use single line spacing.
 - Every table has a preceding `表x-y` caption; every image has a following `图x-y` caption; numbering follows the current first-level chapter heading and restarts by chapter. Missing captions are replaced with generated, context-based titles, not placeholders.
 - Three-line tables have no first-row shading and only top, header-bottom, and bottom rules.
 - Image paragraphs and figure/table captions are centered.
